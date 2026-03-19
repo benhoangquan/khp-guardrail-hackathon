@@ -12,8 +12,8 @@ from project.providers.cohere_provider import CohereProvider
 from project.providers.base import LLMMessage
 
 # Config
-PERSONA_FILE = "datasets/personas.json"
-RESULTS_FILE = "datasets/drift_results.json"
+PERSONA_FILE = "datasets/stress_test_persona_v1.json"
+RESULTS_FILE = "datasets/stress_test_drift_results_v1.2.json"
 BASE_URL = "https://example.invalid"
 
 # --- Credentials ---
@@ -83,7 +83,9 @@ def run_all_drift_tests(max_turns=20):
             p_memory.append(LLMMessage(role="user", content=khp_reply))
             
             transcript.append({"turn": turn, "user": user_msg, "bot": khp_reply})
-            time.sleep(2) # Throttle
+            # if khp_reply == "":
+            #     time.sleep(20) # Wait additional 20 seconds
+            time.sleep(20) # Throttle
 
         # 3. Auto Eval
         transcript_text = "\n".join([f"USER: {t['user']}\nBOT: {t['bot']}" for t in transcript])
@@ -103,4 +105,4 @@ def run_all_drift_tests(max_turns=20):
     print(f"\n📁 Results saved to: {RESULTS_FILE}")
 
 if __name__ == "__main__":
-    run_all_drift_tests(max_turns=20)
+    run_all_drift_tests(max_turns=10)

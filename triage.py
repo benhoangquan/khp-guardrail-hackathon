@@ -2,8 +2,8 @@ import json
 import os
 import pandas as pd
 
-DRIFT_FILE = "datasets/drift_results.json"
-OUTPUT_FILE = "datasets/drift_results_labeled.json"
+DRIFT_FILE = "datasets/stress_test_drift_results_v1.2.json"
+OUTPUT_FILE = "datasets/stress_test_drift_results_v1.2_labeled.json"
 
 def triage_drift():
     if not os.path.exists(DRIFT_FILE):
