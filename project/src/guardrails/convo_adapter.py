@@ -21,26 +21,26 @@ from typing import Optional
 
 # Hedge words: early hedging that erodes as crisis deepens
 _HEDGE_WORDS = {
-    "maybe", "perhaps", "kind of", "kinda", "sort of", "sorta",
-    "i guess", "i think", "i don't know", "not sure", "just wondering",
-    "a little", "a bit", "sometimes", "occasionally", "might", "could",
+    r"\bmaybe\b", r"\bperhaps\b", r"\bkind of\b", r"\bkinda\b", r"\bsort of\b", r"\bsorta\b",
+    r"\bi guess\b", r"\bi think\b", r"\bi don't know\b", r"\bnot sure\b", r"\bjust wondering\b",
+    r"\ba little\b", r"\ba bit\b", r"\bsometimes\b", r"\boccasionally\b", r"\bmight\b", r"\bcould\b",
 }
 
 # Risk keywords: direct and indirect distress signals
 _RISK_KEYWORDS = {
     # explicit
-    "suicide", "suicidal", "kill myself", "end my life", "end it all",
-    "hurt myself", "self-harm", "self harm", "cut myself", "overdose",
+    r"\bsuicide\b", r"\bsuicidal\b", r"\bkill myself\b", r"\bend my life\b", r"\bend it all\b",
+    r"\bhurt myself\b", r"\bself-harm\b", r"\bself harm\b", r"\bcut myself\b", r"\boverdose\b",
     # passive SI
-    "better off without me", "burden", "wouldn't mind not waking",
-    "don't want to be here", "wish i wasn't here", "tired of existing",
-    "no point", "what's the point", "point anymore",
+    r"\bbetter off without me\b", r"\bburden\b", r"\bwouldn't mind not waking\b",
+    r"\bdon't want to be here\b", r"\bwish i wasn't here\b", r"\btired of existing\b",
+    r"\bno point\b", r"\bwhat's the point\b", r"\bpoint anymore\b",
     # hopelessness / finality
-    "never going to change", "always been like this", "accepted it",
-    "giving up", "given up", "last time", "saying goodbye", "goodbye forever",
-    "nothing matters", "doesn't matter anymore",
+    r"\bnever going to change\b", r"\balways been like this\b", r"\baccepted it\b",
+    r"\bgiving up\b", r"\bgiven up\b", r"\blast time\b", r"\bsaying goodbye\b", r"\bgoodbye forever\b",
+    r"\bnothing matters\b", r"\bdoesn't matter anymore\b",
     # isolation
-    "no one cares", "nobody cares", "all alone", "completely alone",
+    r"\bno one cares\b", r"\bnobody cares\b", r"\ball alone\b", r"\bcompletely alone\b",
 }
 
 # Signals that KHP escalated (used only if you run this against KHP responses)
@@ -84,7 +84,7 @@ def _hedge_density(text: str) -> float:
     """Fraction of hedge-word matches relative to word count (0-1)."""
     lower = text.lower()
     word_count = max(len(lower.split()), 1)
-    hits = sum(1 for h in _HEDGE_WORDS if h in lower)
+    hits = sum(1 for h in _HEDGE_WORDS if re.search(h, lower))
     return min(hits / word_count * 10, 1.0)  # scale: 1 hit per 10 words = 1.0
 
 
@@ -92,7 +92,7 @@ def _risk_density(text: str) -> float:
     """Fraction of risk-keyword matches relative to word count (0-1)."""
     lower = text.lower()
     word_count = max(len(lower.split()), 1)
-    hits = sum(1 for k in _RISK_KEYWORDS if k in lower)
+    hits = sum(1 for k in _RISK_KEYWORDS if re.search(k, lower))
     return min(hits / word_count * 5, 1.0)  # scale: 1 hit per 5 words = 1.0
 
 

@@ -155,25 +155,26 @@ PROFILES: dict[str, DDMProfile] = {
 # Risk keywords that contribute positively to φ(t)
 _RISK_TERMS = [
     # explicit SI
-    "suicide", "suicidal", "kill myself", "end my life", "end it all",
-    "hurt myself", "self-harm", "self harm", "overdose",
+    r"\bsuicide\b", r"\bsuicidal\b", r"\bkill myself\b", r"\bend my life\b", r"\bend it all\b",
+    r"\bhurt myself\b", r"\bself-harm\b", r"\bself harm\b", r"\bcut myself\b", r"\boverdose\b",
     # passive SI / burden language
-    "better off without", "burden", "don't want to be here",
-    "wish i wasn't here", "tired of existing", "no point",
-    "what's the point", "wouldn't mind not waking",
+    r"\bbetter off without\b", r"\bburden\b", r"\bdon't want to be here\b",
+    r"\bwish i wasn't here\b", r"\btired of existing\b", r"\bno point\b",
+    r"\bwhat's the point\b", r"\bwouldn't mind not waking\b",
     # hopelessness / finality
-    "never going to change", "always been like this", "accepted it",
-    "giving up", "given up", "last time", "saying goodbye",
-    "goodbye forever", "nothing matters", "doesn't matter anymore",
+    r"\bnever going to change\b", r"\balways been like this\b", r"\baccepted it\b",
+    r"\bgiving up\b", r"\bgiven up\b", r"\blast time\b", r"\bsaying goodbye\b",
+    r"\bgoodbye forever\b", r"\bnothing matters\b", r"\bdoesn't matter anymore\b",
     # isolation
-    "no one cares", "nobody cares", "all alone", "completely alone",
+    r"\bno one cares\b", r"\bnobody cares\b", r"\ball alone\b", r"\bcompletely alone\b",
 ]
+
 
 # Hedge words: presence early, erosion later, is itself a signal
 _HEDGE_TERMS = [
-    "maybe", "perhaps", "kind of", "kinda", "sort of", "sorta",
-    "i guess", "i think", "i don't know", "just wondering",
-    "a little", "a bit", "sometimes", "might", "could be",
+    r"\bmaybe\b", r"\bperhaps\b", r"\bkind of\b", r"\bkinda\b", r"\bsort of\b", r"\bsorta\b",
+    r"\bi guess\b", r"\bi think\b", r"\bi don't know\b", r"\bjust wondering\b",
+    r"\ba little\b", r"\ba bit\b", r"\bsometimes\b", r"\bmight\b", r"\bcould be\b",
 ]
 
 # Syntactic fragmentation markers (elevated in ADHD-style text)
@@ -211,11 +212,11 @@ def extract_turn_features(turn_text: str) -> float:
     n = max(len(words), 1)
 
     # Risk keyword hits (weighted most heavily)
-    risk_hits = sum(1 for k in _RISK_TERMS if k in text)
+    risk_hits = sum(1 for k in _RISK_TERMS if re.search(k, text))
     risk_score = min(risk_hits / max(n / 5, 1), 1.0)
 
     # Low hedging increases risk signal (direct language = more certain distress)
-    hedge_hits = sum(1 for h in _HEDGE_TERMS if h in text)
+    hedge_hits = sum(1 for h in _HEDGE_TERMS if re.search(h, text))
     hedge_penalty = max(0.0, 0.2 - (hedge_hits * 0.05))  # 0 hedges → +0.2
 
     # Engagement: very short turns (≤5 words) may signal withdrawal

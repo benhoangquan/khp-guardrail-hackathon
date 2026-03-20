@@ -64,7 +64,14 @@ class UserAgent:
                     utils.calculate_base_tokens(messages, response_text, self.base_model)
                     print(response_text)
                     messages.append({"role": "assistant", "content": response_text})
-                    scores[f'{i}'] = int(response_text)
+                    
+                    # Robust integer extraction: find first number in string
+                    score_match = re.search(r"\d+", response_text)
+                    if score_match:
+                        scores[f'{i}'] = int(score_match.group(0))
+                    else:
+                        print(f"Warning: No integer score found in response: '{response_text}'. Defaulting to 1.")
+                        scores[f'{i}'] = 1
                     i += 1
 
             return scores
