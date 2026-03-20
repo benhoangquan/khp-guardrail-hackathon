@@ -27,7 +27,7 @@ from typing import Optional
 # Configs
 BASE_URL = "https://example.invalid"
 USERNAME = os.getenv("KHP_CHAT_USERNAME", "team_055")
-PASSWORD = os.getenv("KHP_CHAT_PASSWORD", "REDACTED")
+PASSWORD = os.getenv("KHP_CHAT_PASSWORD")
 OUTPUT_FILE = "datasets/contrastive_pairs_results.csv"
 
 # Keywords that indicate KHP escalated to crisis support
