@@ -50,7 +50,7 @@ _ESCALATION_SIGNALS = {
 }
 
 
-def _parse_turns(text: str) -> list[tuple[str, str]]:
+def parse_turns(text: str) -> list[tuple[str, str]]:
     """
     Parse KHP conversation format into [(role, content), ...].
 
@@ -197,7 +197,7 @@ class ConvoAnalyzer:
 
     def analyze(self, conversation_text: str) -> dict:
         """Return a dict with all features and the composite risk score."""
-        turns = _parse_turns(conversation_text)
+        turns = parse_turns(conversation_text)
         user_turns = [c for role, c in turns if role == "user"]
         asst_turns = [c for role, c in turns if role == "assistant"]
 
@@ -256,7 +256,7 @@ class ConvoAnalyzer:
         try:
             from convokit import Coordination
 
-            turns = _parse_turns(conversation_text)
+            turns = parse_turns(conversation_text)
             corpus = _build_convokit_corpus(turns, conv_id)
 
             coord = Coordination()
