@@ -157,16 +157,33 @@ _RISK_TERMS = [
     # explicit SI
     r"\bsuicide\b", r"\bsuicidal\b", r"\bkill myself\b", r"\bend my life\b", r"\bend it all\b",
     r"\bhurt myself\b", r"\bself-harm\b", r"\bself harm\b", r"\bcut myself\b", r"\boverdose\b",
+    # youth slang / internet abbreviations
+    r"\bkms\b", r"\bkys\b",                       # "kill myself" / "kill yourself"
+    r"\bunalive\b", r"\bunaliving\b",              # TikTok euphemism for suicide
+    r"\bctb\b",                                    # "catch the bus" — suicide forum term
+    r"\bi('| a)?m done\b",
+    r"\bcan't do this anymore\b",
+    r"\bwant to disappear\b",
+    r"\bwant it to stop\b",
+    r"\bpermanent solution\b",
+    r"\blong sleep\b",
     # passive SI / burden language
     r"\bbetter off without\b", r"\bburden\b", r"\bdon't want to be here\b",
     r"\bwish i wasn't here\b", r"\btired of existing\b", r"\bno point\b",
     r"\bwhat's the point\b", r"\bwouldn't mind not waking\b",
+    r"\bno reason to stay\b", r"\bno reason to live\b",
+    r"\beveryone would be better off\b",
+    r"\bwish i was never born\b",
+    r"\bdon't want to wake up\b",
     # hopelessness / finality
     r"\bnever going to change\b", r"\balways been like this\b", r"\baccepted it\b",
     r"\bgiving up\b", r"\bgiven up\b", r"\blast time\b", r"\bsaying goodbye\b",
     r"\bgoodbye forever\b", r"\bnothing matters\b", r"\bdoesn't matter anymore\b",
+    r"\bno way out\b", r"\btrapped\b", r"\bfeel empty\b",
+    r"\bi give up on everything\b",
     # isolation
     r"\bno one cares\b", r"\bnobody cares\b", r"\ball alone\b", r"\bcompletely alone\b",
+    r"\bnobody would notice\b", r"\bnobody would miss me\b",
 ]
 
 
