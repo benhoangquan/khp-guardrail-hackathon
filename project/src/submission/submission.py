@@ -84,9 +84,10 @@ class CassandreGrandCompositeV3(BaseGuardrail):
             override = "llm_high_confidence"
             grand_score = llm_score
         else:
-            # Standard blend (same weights as v2.5)
-            W_CASS = 0.4
-            W_LLM = 0.6
+            # Cassandre scores ~0.61 for all samples (no discrimination);
+            # minimize its weight so the blend tracks the LLM signal.
+            W_CASS = 0.1
+            W_LLM = 0.9
             grand_score = (cass_score * W_CASS) + (llm_score * W_LLM)
 
         status = (
