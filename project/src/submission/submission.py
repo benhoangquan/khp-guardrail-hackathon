@@ -76,24 +76,13 @@ class CassandreGrandCompositeV3(BaseGuardrail):
                 1.0 if llm_result.status == GuardrailStatus.FAIL else 0.0
             )
 
-        # 3. Override logic — safety-first, only override upward (toward FAIL).
-        #    a) LLM score ≥ 0.85 → very confident, use LLM score directly
-        #    b) LLM returned high_risk=true AND score ≥ 0.55 → trust the
-        #       explicit boolean, don't let Cassandre dilute a correct FAIL
+        # 3. Confidence override — if LLM is very sure it's high risk,
+        #    don't let a low Cassandre score dilute the signal.
+        #    We ONLY override upward (safety-first), never downward.
         override = None
-        llm_said_high_risk = (
-            llm_result is not None
-            and llm_result.status == GuardrailStatus.FAIL
-        )
-
         if llm_score >= LLM_HIGH_CONFIDENCE:
             override = "llm_high_confidence"
             grand_score = llm_score
-        elif llm_said_high_risk and llm_score >= 0.55:
-            # LLM explicitly said high_risk with moderate+ score —
-            # blend would give e.g. 0*0.4 + 0.55*0.6 = 0.33 < 0.40 → wrong PASS
-            override = "llm_boolean_override"
-            grand_score = max(llm_score, self.config.threshold)
         else:
             # Standard blend (same weights as v2.5)
             W_CASS = 0.4
