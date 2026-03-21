@@ -45,7 +45,7 @@ class CassandreGrandCompositeV3(BaseGuardrail):
         self,
         cassandre_gr: CassandreMultiTurnGuardrail,
         llm_judge_gr: Optional[LLMJudgeGuardrail],
-        threshold: float = 0.50,
+        threshold: float = 0.40,
     ):
         super().__init__(GuardrailConfig(
             name="cassandre_grand_composite_v3",
@@ -84,10 +84,9 @@ class CassandreGrandCompositeV3(BaseGuardrail):
             override = "llm_high_confidence"
             grand_score = llm_score
         else:
-            # Cassandre scores ~0.61 for all samples (no discrimination);
-            # minimize its weight so the blend tracks the LLM signal.
-            W_CASS = 0.1
-            W_LLM = 0.9
+            # Standard blend (same weights as v2.5)
+            W_CASS = 0.4
+            W_LLM = 0.6
             grand_score = (cass_score * W_CASS) + (llm_score * W_LLM)
 
         status = (
@@ -190,7 +189,7 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
 
     # ── 4. Build composite (same threshold as v2.5) ──────────────────────
     input_guardrail = CassandreGrandCompositeV3(
-        cassandre_gr, llm_judge_gr, threshold=0.50
+        cassandre_gr, llm_judge_gr, threshold=0.40
     )
 
     return (input_guardrail, None)
