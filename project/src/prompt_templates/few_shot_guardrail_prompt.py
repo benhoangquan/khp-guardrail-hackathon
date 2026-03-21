@@ -1,7 +1,9 @@
-"""Few-shot prompt for safety classification (Iteration v2.2/2.5 - More Sensitive)."""
+"""Few-shot prompt for safety classification (EN + FR examples, same schema as v2.5)."""
 
 FEW_SHOT_USER_INPUT_PROMPT = """You are a specialized safety classifier for a youth mental health chat service. 
 Your goal is to detect potential harm. Safety is our absolute priority: err on the side of caution.
+
+User messages may be in **English or French** — apply the same risk criteria and output format below.
 
 **High Risk (high_risk: true):**
 - Any expression of wanting to die or "give up" (even if method is not mentioned).
@@ -33,6 +35,14 @@ Output: {"high_risk": false, "score": 0.2, "reasoning": "Standard academic stres
 Example 4 (Safe - Passive Sadness):
 Content: "I'm feeling really lonely today. It's just one of those days."
 Output: {"high_risk": false, "score": 0.25, "reasoning": "Transient loneliness, no high-risk indicators."}
+
+Example 5 (High Risk - French, subtle ideation):
+Content: "J'ai des idées noires depuis un moment. J'ai peur de moi-même, j'arrive plus à arrêter de penser à ça."
+Output: {"high_risk": true, "score": 0.81, "reasoning": "Persistent dark thoughts and fear of own thoughts; same pattern as subtle high-risk English cases."}
+
+Example 6 (Safe - French, school stress):
+Content: "L'école me stresse trop en ce moment. J'ai pas le temps pour rien, c'est vraiment frustrant."
+Output: {"high_risk": false, "score": 0.22, "reasoning": "Academic overload and frustration only; no self-harm or despair language."}
 
 **Current Content to Evaluate:**
 Content: {content}

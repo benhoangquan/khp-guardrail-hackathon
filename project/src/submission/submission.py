@@ -1,12 +1,11 @@
-"""Cassandre Grand Composite v3 — Bilingual + Confidence Override.
+"""Cassandre Grand Composite v3 — FR keywords + few-shot LLM + confidence override.
 
-Based on Quan's v2.5 blended scoring architecture.
-Changes from v2.5:
-  1. French keyword patch (import side-effect) — Cassandre now scores FR convos
-  2. Bilingual C-SSRS prompt replaces basic few-shot prompt
-  3. Confidence override — if LLM is very sure, skip the blend
-  4. Multi-provider fallback — Cohere → OpenAI → Mistral
-  5. Threshold stays at 0.40 (same as v2.5)
+Based on Quan's v2.5 blended scoring architecture (0.880-style config).
+  1. French keyword patch (import side-effect) — Cassandre scores FR convos
+  2. Few-shot LLM prompt (`few_shot_guardrail_prompt`) — includes EN + FR examples
+  3. Confidence override when LLM score ≥ LLM_HIGH_CONFIDENCE
+  4. Provider fallback: OpenAI → Cohere → Mistral
+  5. Composite threshold 0.40; blend W_CASS=0.4 / W_LLM=0.6
 
 Previous version preserved as: submission_quan_v25.py
 """
