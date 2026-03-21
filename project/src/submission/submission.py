@@ -45,7 +45,7 @@ class CassandreGrandCompositeV3(BaseGuardrail):
         self,
         cassandre_gr: CassandreMultiTurnGuardrail,
         llm_judge_gr: Optional[LLMJudgeGuardrail],
-        threshold: float = 0.4,
+        threshold: float = 0.50,
     ):
         super().__init__(GuardrailConfig(
             name="cassandre_grand_composite_v3",
@@ -189,7 +189,7 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
 
     # ── 4. Build composite (same threshold as v2.5) ──────────────────────
     input_guardrail = CassandreGrandCompositeV3(
-        cassandre_gr, llm_judge_gr, threshold=0.4
+        cassandre_gr, llm_judge_gr, threshold=0.50
     )
 
     return (input_guardrail, None)
