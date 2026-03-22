@@ -1,13 +1,15 @@
-"""Cassandre Grand Composite v3 — FR keywords + few-shot LLM + confidence override.
+"""LLM-Primary v5 — Drop Cassandre blend, use LLM boolean directly.
 
-Based on Quan's v2.5 blended scoring architecture (0.880-style config).
-  1. French keyword patch (import side-effect) — Cassandre scores FR convos
-  2. Few-shot LLM prompt (high-recall, err on side of caution)
-  3. Confidence override when LLM score ≥ LLM_HIGH_CONFIDENCE (0.85)
+Analysis showed Cassandre is non-discriminative (mean=0.588, max=0.650 across
+ALL samples) and the blend was adding noise. The simulated eval (v7) confirmed
+LLM-only outperforms every blend variant by +6% F1.
+
+Architecture:
+  1. French keyword patch still imported (side-effect for Cassandre fallback)
+  2. LLM Judge as PRIMARY decision-maker — use its status (high_risk boolean)
+  3. Cassandre as FALLBACK only when no LLM provider is available
   4. Provider fallback: OpenAI → Cohere → Mistral
-  5. Composite threshold 0.38; blend W_CASS=0.30 / W_LLM=0.70
-
-Previous version preserved as: submission_quan_v25.py
+  5. Baseline prompt (FEW_SHOT_USER_INPUT_PROMPT) — simplest prompt, best F1
 """
 
 from __future__ import annotations
@@ -28,28 +30,23 @@ from src.guardrails.base import (
 
 LOGGER = logging.getLogger(__name__)
 
-# ── Confidence override threshold ─────────────────────────────────────────────
-# If the LLM is very confident HIGH risk, don't let Cassandre dilute the signal.
-# We only override upward (force FAIL), never downward — safety-first.
-LLM_HIGH_CONFIDENCE = 0.85   # LLM score ≥ this → use LLM score directly
 
-
-class CassandreGrandCompositeV3(BaseGuardrail):
+class LLMPrimaryGuardrail(BaseGuardrail):
     """
-    Composite guardrail that blends Cassandre + LLM Judge scores,
-    with a confidence override for high-conviction LLM calls.
+    LLM-primary guardrail: uses LLM Judge's own binary decision (high_risk
+    boolean) as the final PASS/FAIL. Cassandre runs for metadata only and
+    serves as fallback when no LLM provider is available.
     """
 
     def __init__(
         self,
         cassandre_gr: CassandreMultiTurnGuardrail,
         llm_judge_gr: Optional[LLMJudgeGuardrail],
-        threshold: float = 0.40,
     ):
         super().__init__(GuardrailConfig(
-            name="cassandre_grand_composite_v3",
-            description="Blended score from Cassandre and LLM Judge with confidence override",
-            threshold=threshold,
+            name="llm_primary_v5",
+            description="LLM-primary with Cassandre fallback",
+            threshold=0.50,
         ))
         self.cassandre = cassandre_gr
         self.llm_judge = llm_judge_gr
@@ -60,50 +57,42 @@ class CassandreGrandCompositeV3(BaseGuardrail):
         context: Optional[Dict[str, Any]] = None,
         evaluation_type: EvaluationType = EvaluationType.USER_INPUT,
     ) -> GuardrailResult:
-        # 1. Get Cassandre Score
+        # 1. Always run Cassandre (for metadata + fallback)
         cass_result = self.cassandre.evaluate(content, context, evaluation_type)
         cass_score = cass_result.score if cass_result.score is not None else (
             1.0 if cass_result.status == GuardrailStatus.FAIL else 0.0
         )
 
-        # 2. Get LLM Judge Score
-        llm_score = cass_score  # fallback
-        llm_result = None
+        # 2. LLM Judge — primary decision-maker
         if self.llm_judge:
             llm_result = self.llm_judge.evaluate(content, context, evaluation_type)
             llm_score = llm_result.score if llm_result.score is not None else (
                 1.0 if llm_result.status == GuardrailStatus.FAIL else 0.0
             )
 
-        # 3. Confidence override — if LLM is very sure it's high risk,
-        #    don't let a low Cassandre score dilute the signal.
-        #    We ONLY override upward (safety-first), never downward.
-        override = None
-        if llm_score >= LLM_HIGH_CONFIDENCE:
-            override = "llm_high_confidence"
+            # Use LLM's own binary decision (high_risk boolean + internal threshold)
+            status = llm_result.status
             grand_score = llm_score
+
+            reasoning = (
+                f"LLM-Primary | LLM: {llm_score:.2f} (status={status.value}) | "
+                f"Cassandre: {cass_score:.2f} (metadata only)"
+            )
         else:
-            # LLM is more accurate — give it more weight (v4 tuning)
-            W_CASS = 0.30
-            W_LLM = 0.70
-            grand_score = (cass_score * W_CASS) + (llm_score * W_LLM)
+            # Fallback: no LLM available — use Cassandre alone
+            llm_result = None
+            grand_score = cass_score
+            status = cass_result.status
 
-        status = (
-            GuardrailStatus.FAIL if grand_score >= self.config.threshold
-            else GuardrailStatus.PASS
-        )
-
-        reasoning = (
-            f"Grand Score: {grand_score:.2f} | "
-            f"Cassandre: {cass_score:.2f} | "
-            f"LLM: {llm_score:.2f}"
-            f"{f' | override={override}' if override else ''}"
-        )
+            reasoning = (
+                f"Cassandre-Fallback | Cassandre: {cass_score:.2f} | "
+                f"No LLM provider available"
+            )
 
         metadata = {
             "cassandre_result": cass_result.to_dict(),
             "grand_score": grand_score,
-            "override": override,
+            "architecture": "llm_primary_v5",
         }
         if llm_result is not None:
             metadata["llm_result"] = llm_result.to_dict()
@@ -118,15 +107,14 @@ class CassandreGrandCompositeV3(BaseGuardrail):
 
 def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
     """Return (input_guardrail, output_guardrail)."""
-    LOGGER.info("Loading Cassandre Grand Composite v3 (bilingual + confidence override)")
+    LOGGER.info("Loading LLM-Primary v5 (baseline prompt, no Cassandre blend)")
 
     # ── 1. Apply French keyword patch (side-effect import) ────────────────
     import src.guardrails.fr_patch  # noqa: F401
 
-    # ── 2. Create LLM provider (OpenAI first — scored 0.852 on v2.5) ────
+    # ── 2. Create LLM provider (OpenAI first) ─────────────────────────────
     llm_provider = None
 
-    # OpenAI first (proven provider from v2.5)
     try:
         from providers.openai_provider import OpenAIProvider
         if os.getenv("BUZZ_GPT_OSS_AUTH_TOKEN"):
@@ -135,7 +123,6 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
     except Exception as exc:
         LOGGER.warning("OpenAIProvider unavailable: %s", exc)
 
-    # Fallback to Cohere
     if llm_provider is None:
         try:
             from providers.cohere_provider import CohereProvider
@@ -145,7 +132,6 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
         except Exception as exc:
             LOGGER.warning("CohereProvider unavailable: %s", exc)
 
-    # Fallback to Mistral
     if llm_provider is None:
         try:
             from providers.mistral_provider import MistralProvider
@@ -160,35 +146,35 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
             LOGGER.warning("MistralProvider unavailable: %s", exc)
 
     if llm_provider is None:
-        LOGGER.warning("No LLM provider available — composite will use Cassandre only")
+        LOGGER.warning("No LLM provider — will use Cassandre fallback only")
 
     # ── 3. Build components ───────────────────────────────────────────────
     cassandre_gr = CassandreMultiTurnGuardrail(config=GuardrailConfig(
         name="cassandre_multi_turn_base",
-        description="Internal base for composite",
+        description="Internal base for fallback + metadata",
         threshold=0.5,
     ))
 
     llm_judge_gr = None
     if llm_provider is not None:
         try:
-            from src.guardrails.fr_patch import BILINGUAL_PROMPT
+            from src.prompt_templates.few_shot_guardrail_prompt import (
+                FEW_SHOT_USER_INPUT_PROMPT,
+            )
             llm_judge_gr = LLMJudgeGuardrail(
                 config=GuardrailConfig(
-                    name="llm_judge_bilingual_base",
-                    description="Internal base for composite",
+                    name="llm_judge_baseline",
+                    description="LLM judge with baseline few-shot prompt",
                     threshold=0.5,
                 ),
                 llm_provider=llm_provider,
-                user_input_prompt=BILINGUAL_PROMPT,
+                user_input_prompt=FEW_SHOT_USER_INPUT_PROMPT,
             )
-            LOGGER.info("LLM judge loaded with improved bilingual high-recall prompt")
+            LOGGER.info("LLM judge loaded with baseline few-shot prompt")
         except Exception as exc:
             LOGGER.error("Failed to initialize LLM Judge: %s", exc)
 
-    # ── 4. Build composite (same threshold as v2.5) ──────────────────────
-    input_guardrail = CassandreGrandCompositeV3(
-        cassandre_gr, llm_judge_gr, threshold=0.38
-    )
+    # ── 4. Build LLM-primary guardrail ────────────────────────────────────
+    input_guardrail = LLMPrimaryGuardrail(cassandre_gr, llm_judge_gr)
 
     return (input_guardrail, None)
