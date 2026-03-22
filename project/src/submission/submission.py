@@ -1,15 +1,11 @@
-"""LLM-Primary v5 — Drop Cassandre blend, use LLM boolean directly.
+"""Ensemble v6 — Two LLM calls + Cassandre blend.
 
-Analysis showed Cassandre is non-discriminative (mean=0.588, max=0.650 across
-ALL samples) and the blend was adding noise. The simulated eval (v7) confirmed
-LLM-only outperforms every blend variant by +6% F1.
-
-Architecture:
-  1. French keyword patch still imported (side-effect for Cassandre fallback)
-  2. LLM Judge as PRIMARY decision-maker — use its status (high_risk boolean)
-  3. Cassandre as FALLBACK only when no LLM provider is available
+Real eval showed LLM-only drops to F1=0.750 (Cassandre IS needed for recall).
+Baseline blend (W=0.4/0.6, T=0.40) got F1=0.850. This version:
+  1. Calls LLM twice with complementary biases (cautious + precise)
+  2. Averages their scores for a more robust LLM signal
+  3. Blends with Cassandre (same weights as baseline)
   4. Provider fallback: OpenAI → Cohere → Mistral
-  5. Baseline prompt (FEW_SHOT_USER_INPUT_PROMPT) — simplest prompt, best F1
 """
 
 from __future__ import annotations
@@ -31,25 +27,28 @@ from src.guardrails.base import (
 LOGGER = logging.getLogger(__name__)
 
 
-class LLMPrimaryGuardrail(BaseGuardrail):
+class EnsembleGuardrail(BaseGuardrail):
     """
-    LLM-primary guardrail: uses LLM Judge's own binary decision (high_risk
-    boolean) as the final PASS/FAIL. Cassandre runs for metadata only and
-    serves as fallback when no LLM provider is available.
+    Two-LLM ensemble blended with Cassandre.
+    Cautious call catches more cases, precise call reduces false positives.
+    Their averaged score is blended with Cassandre for final decision.
     """
 
     def __init__(
         self,
         cassandre_gr: CassandreMultiTurnGuardrail,
-        llm_judge_gr: Optional[LLMJudgeGuardrail],
+        llm_cautious: Optional[LLMJudgeGuardrail],
+        llm_precise: Optional[LLMJudgeGuardrail],
+        threshold: float = 0.40,
     ):
         super().__init__(GuardrailConfig(
-            name="llm_primary_v5",
-            description="LLM-primary with Cassandre fallback",
-            threshold=0.50,
+            name="ensemble_v6",
+            description="Two-LLM ensemble + Cassandre blend",
+            threshold=threshold,
         ))
         self.cassandre = cassandre_gr
-        self.llm_judge = llm_judge_gr
+        self.llm_cautious = llm_cautious
+        self.llm_precise = llm_precise
 
     def evaluate(
         self,
@@ -57,45 +56,69 @@ class LLMPrimaryGuardrail(BaseGuardrail):
         context: Optional[Dict[str, Any]] = None,
         evaluation_type: EvaluationType = EvaluationType.USER_INPUT,
     ) -> GuardrailResult:
-        # 1. Always run Cassandre (for metadata + fallback)
+        # 1. Cassandre (always runs — needed for recall boost + fallback)
         cass_result = self.cassandre.evaluate(content, context, evaluation_type)
         cass_score = cass_result.score if cass_result.score is not None else (
             1.0 if cass_result.status == GuardrailStatus.FAIL else 0.0
         )
 
-        # 2. LLM Judge — primary decision-maker
-        if self.llm_judge:
-            llm_result = self.llm_judge.evaluate(content, context, evaluation_type)
-            llm_score = llm_result.score if llm_result.score is not None else (
-                1.0 if llm_result.status == GuardrailStatus.FAIL else 0.0
+        # 2. LLM calls
+        cautious_result = None
+        precise_result = None
+        cautious_score = cass_score  # fallback
+        precise_score = cass_score   # fallback
+
+        if self.llm_cautious:
+            cautious_result = self.llm_cautious.evaluate(
+                content, context, evaluation_type
+            )
+            cautious_score = cautious_result.score if cautious_result.score is not None else (
+                1.0 if cautious_result.status == GuardrailStatus.FAIL else 0.0
             )
 
-            # Use LLM's own binary decision (high_risk boolean + internal threshold)
-            status = llm_result.status
-            grand_score = llm_score
-
-            reasoning = (
-                f"LLM-Primary | LLM: {llm_score:.2f} (status={status.value}) | "
-                f"Cassandre: {cass_score:.2f} (metadata only)"
+        if self.llm_precise:
+            precise_result = self.llm_precise.evaluate(
+                content, context, evaluation_type
             )
-        else:
-            # Fallback: no LLM available — use Cassandre alone
-            llm_result = None
-            grand_score = cass_score
-            status = cass_result.status
-
-            reasoning = (
-                f"Cassandre-Fallback | Cassandre: {cass_score:.2f} | "
-                f"No LLM provider available"
+            precise_score = precise_result.score if precise_result.score is not None else (
+                1.0 if precise_result.status == GuardrailStatus.FAIL else 0.0
             )
+
+        # 3. Ensemble LLM score (average of both calls)
+        ensemble_llm = (cautious_score + precise_score) / 2.0
+
+        # 4. Blend with Cassandre (same weights as baseline that got F1=0.850)
+        W_CASS = 0.4
+        W_LLM = 0.6
+        grand_score = (cass_score * W_CASS) + (ensemble_llm * W_LLM)
+
+        # 5. Confidence override — if BOTH LLMs agree high risk with high confidence
+        if cautious_score >= 0.85 and precise_score >= 0.85:
+            grand_score = ensemble_llm  # bypass Cassandre dilution
+
+        status = (
+            GuardrailStatus.FAIL if grand_score >= self.config.threshold
+            else GuardrailStatus.PASS
+        )
+
+        reasoning = (
+            f"Ensemble | Cautious: {cautious_score:.2f} | "
+            f"Precise: {precise_score:.2f} | "
+            f"Ensemble LLM: {ensemble_llm:.2f} | "
+            f"Cassandre: {cass_score:.2f} | "
+            f"Grand: {grand_score:.2f}"
+        )
 
         metadata = {
             "cassandre_result": cass_result.to_dict(),
             "grand_score": grand_score,
-            "architecture": "llm_primary_v5",
+            "ensemble_llm_score": ensemble_llm,
+            "architecture": "ensemble_v6",
         }
-        if llm_result is not None:
-            metadata["llm_result"] = llm_result.to_dict()
+        if cautious_result is not None:
+            metadata["cautious_result"] = cautious_result.to_dict()
+        if precise_result is not None:
+            metadata["precise_result"] = precise_result.to_dict()
 
         return self._create_result(
             status=status,
@@ -107,19 +130,19 @@ class LLMPrimaryGuardrail(BaseGuardrail):
 
 def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
     """Return (input_guardrail, output_guardrail)."""
-    LOGGER.info("Loading LLM-Primary v5 (baseline prompt, no Cassandre blend)")
+    LOGGER.info("Loading Ensemble v6 (two-LLM + Cassandre blend)")
 
-    # ── 1. Apply French keyword patch (side-effect import) ────────────────
+    # ── 1. Apply French keyword patch ─────────────────────────────────────
     import src.guardrails.fr_patch  # noqa: F401
 
-    # ── 2. Create LLM provider (OpenAI first) ─────────────────────────────
+    # ── 2. Create LLM provider ────────────────────────────────────────────
     llm_provider = None
 
     try:
         from providers.openai_provider import OpenAIProvider
         if os.getenv("BUZZ_GPT_OSS_AUTH_TOKEN"):
             llm_provider = OpenAIProvider()
-            LOGGER.info("Using OpenAIProvider for LLM judge")
+            LOGGER.info("Using OpenAIProvider")
     except Exception as exc:
         LOGGER.warning("OpenAIProvider unavailable: %s", exc)
 
@@ -128,7 +151,7 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
             from providers.cohere_provider import CohereProvider
             if os.getenv("BUZZ_COHERE_AUTH_TOKEN"):
                 llm_provider = CohereProvider()
-                LOGGER.info("Using CohereProvider for LLM judge")
+                LOGGER.info("Using CohereProvider")
         except Exception as exc:
             LOGGER.warning("CohereProvider unavailable: %s", exc)
 
@@ -141,7 +164,7 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
                     base_url=os.getenv("BUZZ_MISTRAL_LARGE_API"),
                     api_key=os.getenv("BUZZ_MISTRAL_LARGE_AUTH_TOKEN"),
                 )
-                LOGGER.info("Using MistralProvider for LLM judge")
+                LOGGER.info("Using MistralProvider")
         except Exception as exc:
             LOGGER.warning("MistralProvider unavailable: %s", exc)
 
@@ -150,31 +173,48 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
 
     # ── 3. Build components ───────────────────────────────────────────────
     cassandre_gr = CassandreMultiTurnGuardrail(config=GuardrailConfig(
-        name="cassandre_multi_turn_base",
-        description="Internal base for fallback + metadata",
+        name="cassandre_base",
+        description="Recall boost + fallback",
         threshold=0.5,
     ))
 
-    llm_judge_gr = None
+    llm_cautious = None
+    llm_precise = None
+
     if llm_provider is not None:
         try:
             from src.prompt_templates.few_shot_guardrail_prompt import (
-                FEW_SHOT_USER_INPUT_PROMPT,
+                CAUTIOUS_PROMPT,
+                PRECISE_PROMPT,
             )
-            llm_judge_gr = LLMJudgeGuardrail(
+
+            llm_cautious = LLMJudgeGuardrail(
                 config=GuardrailConfig(
-                    name="llm_judge_baseline",
-                    description="LLM judge with baseline few-shot prompt",
+                    name="llm_cautious",
+                    description="High-recall bias",
                     threshold=0.5,
                 ),
                 llm_provider=llm_provider,
-                user_input_prompt=FEW_SHOT_USER_INPUT_PROMPT,
+                user_input_prompt=CAUTIOUS_PROMPT,
             )
-            LOGGER.info("LLM judge loaded with baseline few-shot prompt")
-        except Exception as exc:
-            LOGGER.error("Failed to initialize LLM Judge: %s", exc)
 
-    # ── 4. Build LLM-primary guardrail ────────────────────────────────────
-    input_guardrail = LLMPrimaryGuardrail(cassandre_gr, llm_judge_gr)
+            llm_precise = LLMJudgeGuardrail(
+                config=GuardrailConfig(
+                    name="llm_precise",
+                    description="High-precision bias",
+                    threshold=0.5,
+                ),
+                llm_provider=llm_provider,
+                user_input_prompt=PRECISE_PROMPT,
+            )
+
+            LOGGER.info("Ensemble loaded: cautious + precise LLM judges")
+        except Exception as exc:
+            LOGGER.error("Failed to initialize ensemble: %s", exc)
+
+    # ── 4. Build ensemble ─────────────────────────────────────────────────
+    input_guardrail = EnsembleGuardrail(
+        cassandre_gr, llm_cautious, llm_precise, threshold=0.40
+    )
 
     return (input_guardrail, None)
