@@ -170,6 +170,19 @@ _FR_RISK_KEYWORDS: set[str] = {
     r"\bje suis brisée\b",
     r"\bje me sens vide\b",                 # "I feel empty"
     r"\bje sens pu rien\b",                 # QC: "I don't feel anything"
+    # Temporal urgency: imminent action
+    # Source: Coppersmith et al. (2018) "Natural Language Processing of Social
+    # Media as Screening for Suicide Risk", Biomedical Informatics Insights.
+    r"\bce soir\b",
+    r"\bavant demain\b",
+    r"\bmaintenant\b",
+    r"\bc'est la dernière fois\b",
+    r"\bdernier message\b",
+    r"\bavant ce soir\b",
+    r"\bce sera le dernier\b",
+    r"\baprès ce message\b",
+    r"\bune dernière fois\b",
+    r"\bce soir c'est fini\b",
     # ── Isolation ────────────────────────────────────────────────────────
     r"\btout seul\b",
     r"\btoute seule\b",
@@ -254,10 +267,12 @@ _apply_fr_patch()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# SECTION 4 — BILINGUAL PROMPT (lines 110-162 per spec)
+# SECTION 4 — PROMPT HEADER / FOOTER + STRUCTURED EXAMPLES
 # ─────────────────────────────────────────────────────────────────────────────
+# _EXAMPLES is the single source of truth.  BILINGUAL_PROMPT (static, all 8)
+# and build_prompt() (dynamic, top-k via BM25+) are both derived from it.
 
-BILINGUAL_PROMPT: str = """\
+_PROMPT_HEADER: str = """\
 You are a specialized safety classifier for a youth mental health chat service (KHP — Kids Help Phone).
 Your task is to classify conversations as HIGH RISK or LOW RISK, in English OR French.
 
@@ -291,47 +306,269 @@ For multi-turn conversations, escalating distress across turns is a stronger sig
 
 ---
 
+## TWO-STEP CLASSIFICATION PROCESS
+
+Before deciding, work through these two steps inside your reasoning field:
+
+**Step 1 — Evidence extraction**: Quote up to 3 statements from the conversation that are most clinically concerning (or note "none found" if absent).
+
+**Step 2 — C-SSRS mapping**: For each quoted statement, name the closest C-SSRS criterion (e.g. "passive ideation", "active ideation with plan", "burden identification", "hyperbole") — or "none" if no criterion applies.
+
+Then state your conclusion. Only after this reasoning, set high_risk and score.
+
+---
+
 ## EXAMPLES
 
-**EN Example 1 — HIGH RISK** (passive ideation + burden):
-Content: "Nobody would miss me if I disappeared. I've been thinking about it for weeks. I don't see the point anymore."
-Output: {"high_risk": true, "score": 0.88, "reasoning": "Persistent passive ideation ('disappeared', 'don't see the point'), burden language ('nobody would miss me') across sustained period. C-SSRS: passive ideation without plan, but persistent."}
+"""
 
-**EN Example 2 — LOW RISK** (hyperbole with academic stress):
-Content: "I literally want to die. This exam is going to kill me. Why is school so hard??"
-Output: {"high_risk": false, "score": 0.12, "reasoning": "Hyperbolic language ('literally want to die', 'kill me') used in academic stress context. No persistent ideation, no burden language, no plan. C-SSRS: not indicative of genuine ideation."}
-
-**EN Example 3 — HIGH RISK** (active ideation + plan):
-Content: "I've decided. I know how I'm going to do it. I just wanted to say goodbye."
-Output: {"high_risk": true, "score": 0.97, "reasoning": "Active ideation with implicit plan ('I know how'), finality language ('say goodbye'). C-SSRS: active suicidal ideation with intent."}
-
-**EN Example 4 — LOW RISK** (general sadness):
-Content: "I'm really sad today. My best friend and I had a fight and I don't know what to do."
-Output: {"high_risk": false, "score": 0.18, "reasoning": "Interpersonal conflict causing temporary sadness. No self-harm or suicidal language. C-SSRS: normal distress without risk indicators."}
-
-**FR Exemple 5 — RISQUE ÉLEVÉ** (idéation passive persistante + sentiment d'être un fardeau):
-Contenu: "je sers vraiment à rien. Ma famille serait mieux sans moi. J'ai l'impression que ça ne changera jamais, peu importe ce que je fais."
-Sortie: {"high_risk": true, "score": 0.85, "reasoning": "Idéation passive persistante ('ça ne changera jamais'), langage de fardeau ('ma famille serait mieux sans moi'). C-SSRS: idéation suicidaire passive avec désespoir profond."}
-
-**FR Exemple 6 — FAIBLE RISQUE** (frustration scolaire, hyperbole):
-Contenu: "je veux mourir tellement j'ai honte de mon exam. C'était terrible, je veux disparaître de la classe."
-Sortie: {"high_risk": false, "score": 0.14, "reasoning": "Hyperbole liée à la honte scolaire ('je veux mourir', 'disparaître'). Contexte situationnel clair, pas d'idéation persistante, pas de plan. C-SSRS: expression hyperbolique, non indicative d'une véritable idéation."}
-
-**FR Exemple 7 — RISQUE ÉLEVÉ** (idéation active + détresse somatique):
-Contenu: "j'ai plus la force de continuer. J'ai pas dormi depuis 3 jours, j'ai rien mangé. Je regarde les médicaments dans l'armoire et je me demande..."
-Sortie: {"high_risk": true, "score": 0.93, "reasoning": "Détresse physique sévère, phrases incomplètes suggestives ('je me demande...'), référence aux moyens létaux (médicaments). C-SSRS: idéation active avec accès aux moyens."}
-
-**FR Exemple 8 — FAIBLE RISQUE** (recherche d'aide pour un ami):
-Contenu: "mon ami m'a dit qu'il pensait parfois à se faire du mal. Comment je peux l'aider?"
-Sortie: {"high_risk": false, "score": 0.25, "reasoning": "La personne cherche de l'aide pour un tiers, pas pour elle-même. Bonne réponse prosociale. Faible risque DIRECT pour la personne qui écrit."}
+_PROMPT_FOOTER: str = """
 
 ---
 
 **Return ONLY valid JSON — no explanations outside the JSON block:**
 {
+    "reasoning": "Step 1: [quoted statements]. Step 2: [C-SSRS mappings]. Conclusion: [final assessment]. English or French.",
     "high_risk": true/false,
-    "score": 0.0-1.0,
-    "reasoning": "Cite the specific C-SSRS criterion met or not met. English or French."
+    "score": 0.0-1.0
 }
 """
+
+# Each entry: content (used for BM25+ retrieval), label, lang, text (injected).
+_EXAMPLES: list[dict] = [
+    {
+        "content": (
+            "Nobody would miss me if I disappeared. "
+            "I've been thinking about it for weeks. I don't see the point anymore."
+        ),
+        "label": "high_risk",
+        "lang": "en",
+        "text": (
+            "**EN Example 1 — HIGH RISK** (passive ideation + burden):\n"
+            'Content: "Nobody would miss me if I disappeared. '
+            "I've been thinking about it for weeks. I don't see the point anymore.\"\n"
+            'Output: {"reasoning": "Step 1: burden language (nobody would miss me), '
+            "sustained passive ideation (thinking about it for weeks), hopelessness (don't see the point). "
+            "Step 2: burden identification; passive ideation—persistent; hopelessness. "
+            'Conclusion: persistent passive SI with burden language.", "high_risk": true, "score": 0.88}'
+        ),
+    },
+    {
+        "content": (
+            "I literally want to die. This exam is going to kill me. Why is school so hard??"
+        ),
+        "label": "low_risk",
+        "lang": "en",
+        "text": (
+            "**EN Example 2 — LOW RISK** (hyperbole with academic stress):\n"
+            'Content: "I literally want to die. This exam is going to kill me. Why is school so hard??"\n'
+            'Output: {"reasoning": "Step 1: hyperbolic death reference (want to die), '
+            "hyperbolic kill reference (going to kill me). "
+            "Step 2: hyperbole—academic context; hyperbole. "
+            'Conclusion: situational exam frustration, no genuine ideation.", "high_risk": false, "score": 0.12}'
+        ),
+    },
+    {
+        "content": (
+            "I've decided. I know how I'm going to do it. I just wanted to say goodbye."
+        ),
+        "label": "high_risk",
+        "lang": "en",
+        "text": (
+            "**EN Example 3 — HIGH RISK** (active ideation + plan):\n"
+            'Content: "I\'ve decided. I know how I\'m going to do it. I just wanted to say goodbye."\n'
+            'Output: {"reasoning": "Step 1: decided to act (I\'ve decided), '
+            "implicit method knowledge (I know how), farewell behavior (say goodbye). "
+            "Step 2: active ideation with intent; active ideation with plan; finality/farewell. "
+            'Conclusion: active SI with intent and implicit plan—highest severity.", "high_risk": true, "score": 0.97}'
+        ),
+    },
+    {
+        "content": (
+            "I'm really sad today. My best friend and I had a fight and I don't know what to do."
+        ),
+        "label": "low_risk",
+        "lang": "en",
+        "text": (
+            "**EN Example 4 — LOW RISK** (general sadness):\n"
+            'Content: "I\'m really sad today. My best friend and I had a fight and I don\'t know what to do."\n'
+            'Output: {"reasoning": "Step 1: transient sadness from friend conflict. '
+            "Step 2: none—interpersonal stress, no SI language. "
+            'Conclusion: temporary distress without risk indicators.", "high_risk": false, "score": 0.18}'
+        ),
+    },
+    {
+        "content": (
+            "je sers vraiment à rien. Ma famille serait mieux sans moi. "
+            "J'ai l'impression que ça ne changera jamais, peu importe ce que je fais."
+        ),
+        "label": "high_risk",
+        "lang": "fr",
+        "text": (
+            "**FR Exemple 5 — RISQUE ÉLEVÉ** (idéation passive persistante + fardeau):\n"
+            'Contenu: "je sers vraiment à rien. Ma famille serait mieux sans moi. '
+            "J'ai l'impression que ça ne changera jamais, peu importe ce que je fais.\"\n"
+            'Sortie: {"reasoning": "Etape 1: sentiment d\'inutilite (je sers a rien), '
+            "fardeau (famille serait mieux sans moi), desespoir (ca ne changera jamais). "
+            "Etape 2: identification comme fardeau; burden identification; desespoir persistant. "
+            'Conclusion: ideation passive avec desespoir profond.", "high_risk": true, "score": 0.85}'
+        ),
+    },
+    {
+        "content": (
+            "je veux mourir tellement j'ai honte de mon exam. "
+            "C'était terrible, je veux disparaître de la classe."
+        ),
+        "label": "low_risk",
+        "lang": "fr",
+        "text": (
+            "**FR Exemple 6 — FAIBLE RISQUE** (frustration scolaire, hyperbole):\n"
+            'Contenu: "je veux mourir tellement j\'ai honte de mon exam. '
+            "C'était terrible, je veux disparaître de la classe.\"\n"
+            'Sortie: {"reasoning": "Etape 1: je veux mourir (contexte scolaire), je veux disparaitre. '
+            "Etape 2: hyperbole academique; hyperbole situationnelle. "
+            'Conclusion: expressions hyperboliques liees a la honte scolaire.", "high_risk": false, "score": 0.14}'
+        ),
+    },
+    {
+        "content": (
+            "j'ai plus la force de continuer. J'ai pas dormi depuis 3 jours, j'ai rien mangé. "
+            "Je regarde les médicaments dans l'armoire et je me demande..."
+        ),
+        "label": "high_risk",
+        "lang": "fr",
+        "text": (
+            "**FR Exemple 7 — RISQUE ÉLEVÉ** (idéation active + accès aux moyens):\n"
+            'Contenu: "j\'ai plus la force de continuer. J\'ai pas dormi depuis 3 jours. '
+            "Je regarde les médicaments dans l'armoire et je me demande...\"\n"
+            'Sortie: {"reasoning": "Etape 1: plus la force de continuer, '
+            "regarde les medicaments dans l'armoire, je me demande... "
+            "Etape 2: ideation passive avec epuisement; acces aux moyens letaux; pensee incomplete suggestive. "
+            'Conclusion: ideation active avec acces aux moyens.", "high_risk": true, "score": 0.93}'
+        ),
+    },
+    {
+        "content": (
+            "mon ami m'a dit qu'il pensait parfois à se faire du mal. Comment je peux l'aider?"
+        ),
+        "label": "low_risk",
+        "lang": "fr",
+        "text": (
+            "**FR Exemple 8 — FAIBLE RISQUE** (recherche d'aide pour un ami):\n"
+            'Contenu: "mon ami m\'a dit qu\'il pensait parfois à se faire du mal. Comment je peux l\'aider?"\n'
+            'Sortie: {"reasoning": "Etape 1: il pensait a se faire du mal (tiers, pas l\'auteur). '
+            "Etape 2: aucun critere pour l'auteur—comportement prosocial. "
+            'Conclusion: risque direct nul pour la personne qui ecrit.", "high_risk": false, "score": 0.25}'
+        ),
+    },
+]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SECTION 5 — BM25+ FEW-SHOT RETRIEVER (TF-IDF fallback)
+# ─────────────────────────────────────────────────────────────────────────────
+
+class _FewShotRetriever:
+    """
+    Dynamic few-shot selector using BM25Plus (Robertson & Zaragoza 2009)
+    with a TF-IDF cosine-similarity fallback when rank_bm25 is unavailable.
+
+    BM25+ is preferred over plain TF-IDF because it normalises for document
+    length — important here since conversations range from 1 to 20+ turns —
+    and its lower-bound fix ensures every matching term contributes a non-zero
+    score.  Both backends are O(n_examples) per query (~8 docs → negligible).
+
+    Diversity guarantee: the retrieved set always contains at least one
+    HIGH RISK and one LOW RISK example when k ≥ 2.  This prevents the LLM
+    from seeing a homogeneous shot set that could anchor classification.
+
+    References:
+      - Robertson & Zaragoza (2009) "The Probabilistic Relevance Framework:
+        BM25 and Beyond", Foundations and Trends in IR 3(4).
+      - Lv & Zhai (2011) "Lower-bounding term frequency normalization"
+        (BM25+), CIKM '11 — fixes zero lower-bound issue in BM25.
+    """
+
+    def __init__(self, examples: list[dict]) -> None:
+        self._examples = examples
+        self._corpus = [self._tokenize(ex["content"]) for ex in examples]
+        self._backend = self._build_index()
+
+    @staticmethod
+    def _tokenize(text: str) -> list[str]:
+        return re.findall(r"\b[a-zA-ZÀ-ÿ''-]+\b", text.lower())
+
+    def _build_index(self) -> str:
+        try:
+            from rank_bm25 import BM25Plus  # type: ignore
+            self._index = BM25Plus(self._corpus)
+            return "bm25+"
+        except ImportError:
+            pass
+        try:
+            from sklearn.feature_extraction.text import TfidfVectorizer  # type: ignore
+            from sklearn.metrics.pairwise import cosine_similarity  # type: ignore
+            texts = [ex["content"] for ex in self._examples]
+            self._tfidf = TfidfVectorizer(ngram_range=(1, 2), max_features=2000).fit(texts)
+            self._tfidf_matrix = self._tfidf.transform(texts)
+            self._cosine_similarity = cosine_similarity
+            return "tfidf"
+        except ImportError:
+            return "fallback"
+
+    def retrieve(self, query: str, k: int = 3) -> list[dict]:
+        """Return k examples most similar to query, diversity-guaranteed."""
+        n = len(self._examples)
+        k = min(k, n)
+
+        if self._backend == "bm25+":
+            scores = self._index.get_scores(self._tokenize(query))
+            indices = sorted(range(n), key=lambda i: scores[i], reverse=True)[:k]
+        elif self._backend == "tfidf":
+            qvec = self._tfidf.transform([query])
+            sims = self._cosine_similarity(qvec, self._tfidf_matrix)[0]
+            indices = sorted(range(n), key=lambda i: float(sims[i]), reverse=True)[:k]
+        else:
+            # Fallback: interleave high/low examples for guaranteed diversity
+            hr = [i for i, ex in enumerate(self._examples) if ex["label"] == "high_risk"]
+            lr = [i for i, ex in enumerate(self._examples) if ex["label"] == "low_risk"]
+            indices = [x for pair in zip(hr, lr) for x in pair][:k]
+
+        selected = [self._examples[i] for i in indices]
+
+        # Diversity guarantee: at least 1 high_risk AND 1 low_risk when k >= 2
+        if k >= 2:
+            labels = {ex["label"] for ex in selected}
+            if len(labels) < 2:
+                missing = "low_risk" if "high_risk" in labels else "high_risk"
+                for ex in self._examples:
+                    if ex["label"] == missing and ex not in selected:
+                        selected[-1] = ex
+                        break
+
+        return selected
+
+
+# Module-level singleton — index built once at import, zero per-query overhead
+_retriever = _FewShotRetriever(_EXAMPLES)
+
+
+def build_prompt(query: str, k: int = 3) -> str:
+    """
+    Build a dynamic few-shot system prompt by retrieving the k most relevant
+    examples for the given query using BM25+ (TF-IDF fallback).
+
+    The returned prompt is ready to use as LLMJudgeGuardrail.user_input_prompt.
+
+    Args:
+        query: Conversation text being classified (used for retrieval only).
+        k:     Number of few-shot examples to inject (default 3).
+    """
+    examples = _retriever.retrieve(query, k=k)
+    return _PROMPT_HEADER + "\n\n".join(ex["text"] for ex in examples) + _PROMPT_FOOTER
+
+
+# Static prompt (all 8 examples) — stable baseline / used when query is
+# unavailable at init time (e.g. guardrail constructed before first call).
+BILINGUAL_PROMPT: str = _PROMPT_HEADER + "\n\n".join(ex["text"] for ex in _EXAMPLES) + _PROMPT_FOOTER
 

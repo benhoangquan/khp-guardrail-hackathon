@@ -28,6 +28,29 @@ from src.guardrails.base import (
 
 LOGGER = logging.getLogger(__name__)
 
+
+def _truncate_for_llm(content: str, first_n: int = 4, last_n: int = 8) -> str:
+    """
+    Keep only the first `first_n` + last `last_n` user turns to prevent
+    'lost in the middle' degradation (Liu et al. 2023).  Assistant turns
+    adjacent to kept user turns are preserved to maintain conversational
+    context.  If the conversation is short enough, returns it unchanged.
+    """
+    from src.guardrails.convo_adapter import parse_turns
+    turns = parse_turns(content)
+    user_indices = [i for i, (role, _) in enumerate(turns) if role == "user"]
+    if len(user_indices) <= first_n + last_n:
+        return content
+    # boundary turn indices
+    first_boundary = user_indices[first_n - 1]   # last turn of "opening" block
+    last_boundary = user_indices[-last_n]         # first turn of "closing" block
+    kept = [
+        (role, text) for i, (role, text) in enumerate(turns)
+        if i <= first_boundary or i >= last_boundary
+    ]
+    return "\n".join(f"{role}: {text}" for role, text in kept)
+
+
 # ── Confidence override threshold ─────────────────────────────────────────────
 # If the LLM is very confident HIGH risk, don't let Cassandre dilute the signal.
 # We only override upward (force FAIL), never downward — safety-first.
@@ -54,6 +77,48 @@ class CassandreGrandCompositeV3(BaseGuardrail):
         self.cassandre = cassandre_gr
         self.llm_judge = llm_judge_gr
 
+    def _self_consistent_llm_score(
+        self,
+        content: str,
+        context: Optional[Dict[str, Any]],
+        evaluation_type: EvaluationType,
+        n: int = 3,
+    ) -> tuple:
+        """
+        Sample LLM judge n times and return (mean_score, first_result).
+
+        Averaging independent samples reduces score variance with CoT prompts,
+        especially for borderline cases near the decision threshold.
+        Short-circuits on the first high-confidence sample (≥ LLM_HIGH_CONFIDENCE)
+        to limit latency when the answer is unambiguous.
+
+        Requires temperature > 0 on the LLM provider for meaningful diversity
+        (most providers default to temperature=1.0).
+
+        Source: Wang et al. (2022) "Self-Consistency Improves Chain of Thought
+        Reasoning in Language Models", ICLR 2023 — majority-vote / score
+        averaging over multiple CoT samples consistently outperforms single-pass
+        on reasoning tasks; applied here to safety classification.
+        """
+        scores: list[float] = []
+        first_result = None
+        for _ in range(n):
+            try:
+                result = self.llm_judge.evaluate(content, context, evaluation_type)
+                s = result.score if result.score is not None else (
+                    1.0 if result.status == GuardrailStatus.FAIL else 0.0
+                )
+                if first_result is None:
+                    first_result = result
+                scores.append(s)
+                if s >= LLM_HIGH_CONFIDENCE:
+                    break  # high confidence; no need for further samples
+            except Exception:
+                break
+        if not scores:
+            return 0.0, None
+        return sum(scores) / len(scores), first_result
+
     def evaluate(
         self,
         content: str,
@@ -66,37 +131,51 @@ class CassandreGrandCompositeV3(BaseGuardrail):
             1.0 if cass_result.status == GuardrailStatus.FAIL else 0.0
         )
 
-        # 2. Get LLM Judge Score
-        llm_score = cass_score  # fallback
+        # 2. Get LLM Judge Score (self-consistent sampling)
+        llm_score = cass_score  # fallback when no LLM
         llm_result = None
         if self.llm_judge:
-            llm_result = self.llm_judge.evaluate(content, context, evaluation_type)
-            llm_score = llm_result.score if llm_result.score is not None else (
-                1.0 if llm_result.status == GuardrailStatus.FAIL else 0.0
+            llm_content = _truncate_for_llm(content)
+            # Dynamic few-shot: tune the system prompt to this conversation
+            try:
+                from src.guardrails.fr_patch import build_prompt as _build_prompt
+                self.llm_judge.user_input_prompt = _build_prompt(llm_content)
+            except Exception:
+                pass  # keep existing static prompt on any failure
+            # Self-consistency: average n=3 samples, short-circuit at high confidence
+            # Source: Wang et al. (2022) ICLR 2023
+            llm_score, llm_result = self._self_consistent_llm_score(
+                llm_content, context, evaluation_type
             )
 
-        # 3. Confidence override — if LLM is very sure it's high risk,
-        #    don't let a low Cassandre score dilute the signal.
-        #    We ONLY override upward (safety-first), never downward.
+        # 3. Confidence override: if LLM is very confident of high risk, use its score directly.
+        #    Only upward override (safety-first), never downward.
         override = None
         if llm_score >= LLM_HIGH_CONFIDENCE:
             override = "llm_high_confidence"
             grand_score = llm_score
         else:
-            # Standard blend (same weights as v2.5)
             W_CASS = 0.4
             W_LLM = 0.6
             grand_score = (cass_score * W_CASS) + (llm_score * W_LLM)
 
+        # 4. Ensemble disagreement: if Cassandre and LLM strongly disagree (gap > 0.30),
+        #    lower the threshold to 0.30. When uncertain, flag rather than miss.
+        effective_threshold = self.config.threshold
+        if abs(cass_score - llm_score) > 0.30:
+            effective_threshold = min(self.config.threshold, 0.30)
+            override = f"{override}+disagreement" if override else "disagreement"
+
         status = (
-            GuardrailStatus.FAIL if grand_score >= self.config.threshold
+            GuardrailStatus.FAIL if grand_score >= effective_threshold
             else GuardrailStatus.PASS
         )
 
         reasoning = (
             f"Grand Score: {grand_score:.2f} | "
             f"Cassandre: {cass_score:.2f} | "
-            f"LLM: {llm_score:.2f}"
+            f"LLM: {llm_score:.2f} | "
+            f"threshold={effective_threshold:.2f}"
             f"{f' | override={override}' if override else ''}"
         )
 
