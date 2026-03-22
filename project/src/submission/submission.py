@@ -267,6 +267,11 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
             LOGGER.error("Failed to initialize LLM Judge: %s", exc)
 
     # ── 4. Build composite (same threshold as v2.5) ──────────────────────
+    # TODO (optional): calibrate threshold before running on test set
+    # distribution shifts and the optimal threshold may differ significantly
+    # We could potentially do a grid search and evaluate F1 at [0.25... 0.55] on val and pick the best F1 value
+    # We could also use isotonic regression for non-parametric calibration better when the score-to-probability relationship is non-monotonic or when the score distribution has multiple modes.
+    # Source: Guo et al. (2017) "On Calibration of Modern Neural Networks", ICML.
     input_guardrail = CassandreGrandCompositeV3(
         cassandre_gr, llm_judge_gr, threshold=0.40
     )
