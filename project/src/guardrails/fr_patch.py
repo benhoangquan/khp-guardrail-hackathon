@@ -281,6 +281,8 @@ You MUST apply the Columbia Suicide Severity Rating Scale (C-SSRS) clinical fram
 - **Information seeking**: "how do I help a friend who is depressed?"
 - **Somatic complaints alone**: "I have a headache", "I feel sick" without psychological distress
 
+For multi-turn conversations, escalating distress across turns is a stronger signal than a single isolated mention, weight recent turns more heavily.
+
 ### SCORE GUIDANCE:
 - 0.0-0.30: Clearly low risk (normal stress, no distress signals)
 - 0.30-0.55: Mild distress (monitor but no immediate action needed)

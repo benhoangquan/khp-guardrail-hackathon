@@ -120,8 +120,8 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
     """Return (input_guardrail, output_guardrail)."""
     LOGGER.info("Loading Cassandre Grand Composite v3 (bilingual + confidence override)")
 
-    # ── 1. Apply French keyword patch (side-effect import) ────────────────
-    import src.guardrails.fr_patch  # noqa: F401
+    # ── 1. Apply French keyword patch + import bilingual prompt ──────────
+    from src.guardrails.fr_patch import BILINGUAL_PROMPT  # noqa: F401 (also patches keyword lists)
 
     # ── 2. Create LLM provider (OpenAI first — scored 0.852 on v2.5) ────
     llm_provider = None
@@ -130,7 +130,7 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
     try:
         from providers.openai_provider import OpenAIProvider
         if os.getenv("BUZZ_GPT_OSS_AUTH_TOKEN"):
-            llm_provider = OpenAIProvider()
+            llm_provider = OpenAIProvider(max_tokens=400)
             LOGGER.info("Using OpenAIProvider for LLM judge")
     except Exception as exc:
         LOGGER.warning("OpenAIProvider unavailable: %s", exc)
@@ -140,7 +140,7 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
         try:
             from providers.cohere_provider import CohereProvider
             if os.getenv("BUZZ_COHERE_AUTH_TOKEN"):
-                llm_provider = CohereProvider()
+                llm_provider = CohereProvider(max_tokens=400)
                 LOGGER.info("Using CohereProvider for LLM judge")
         except Exception as exc:
             LOGGER.warning("CohereProvider unavailable: %s", exc)
@@ -154,6 +154,7 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
                     model=os.getenv("MISTRAL_MODEL"),
                     base_url=os.getenv("BUZZ_MISTRAL_LARGE_API"),
                     api_key=os.getenv("BUZZ_MISTRAL_LARGE_AUTH_TOKEN"),
+                    max_tokens=400,
                 )
                 LOGGER.info("Using MistralProvider for LLM judge")
         except Exception as exc:
@@ -172,17 +173,17 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
     llm_judge_gr = None
     if llm_provider is not None:
         try:
-            from src.prompt_templates.few_shot_guardrail_prompt import FEW_SHOT_USER_INPUT_PROMPT
             llm_judge_gr = LLMJudgeGuardrail(
                 config=GuardrailConfig(
-                    name="llm_judge_few_shot_base",
+                    name="llm_judge_bilingual_base",
                     description="Internal base for composite",
                     threshold=0.5,
+                    max_retries=2,
                 ),
                 llm_provider=llm_provider,
-                user_input_prompt=FEW_SHOT_USER_INPUT_PROMPT,
+                user_input_prompt=BILINGUAL_PROMPT,
             )
-            LOGGER.info("LLM judge loaded with original few-shot prompt")
+            LOGGER.info("LLM judge loaded with BILINGUAL_PROMPT (C-SSRS grounded, EN+FR)")
         except Exception as exc:
             LOGGER.error("Failed to initialize LLM Judge: %s", exc)
 

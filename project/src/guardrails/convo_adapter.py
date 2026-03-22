@@ -113,20 +113,17 @@ def _length_drop(lengths: list[int]) -> float:
 
 def _escalation_trajectory(risk_per_turn: list[float]) -> float:
     """
-    Are risk scores increasing across turns? Returns slope-based score.
+    Are risk scores increasing across turns? Returns a length-invariant score.
+    Compares mean risk of the last third of turns against the first third.
     0 = flat/decreasing, 1 = strongly increasing.
     """
     if len(risk_per_turn) < 2:
         return risk_per_turn[0] if risk_per_turn else 0.0
-    n = len(risk_per_turn)
-    # Simple linear regression slope normalised to [0,1]
-    x_mean = (n - 1) / 2
-    y_mean = sum(risk_per_turn) / n
-    numerator = sum((i - x_mean) * (r - y_mean) for i, r in enumerate(risk_per_turn))
-    denominator = sum((i - x_mean) ** 2 for i in range(n)) or 1
-    slope = numerator / denominator
-    # positive slope = escalating; clip to [0, 1]
-    return max(0.0, min(slope * 5, 1.0))
+    split = max(1, len(risk_per_turn) // 3)
+    early_mean = sum(risk_per_turn[:split]) / split
+    late_mean = sum(risk_per_turn[-split:]) / split
+    # positive delta = escalating; factor 2.5 so a 0.4 rise scores 1.0
+    return max(0.0, min((late_mean - early_mean) * 2.5, 1.0))
 
 
 def _coordination_score(user_turns: list[str], assistant_turns: list[str]) -> float:
