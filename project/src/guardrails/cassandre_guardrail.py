@@ -81,7 +81,7 @@ class CassandreMultiTurnGuardrail(BaseGuardrail):
         convo_score = convo_result["score"]
 
         # 4. Run DDM Model (cognitive accumulation)
-        ddm_result = ddm_score(user_turns)
+        ddm_result = ddm_score(user_turns, seed=42)
         ddm_score_val = ddm_result["score"]
 
         # 4. Composite score (weighted average)

@@ -1,9 +1,9 @@
-"""Cassandre Grand Composite v3 — FR keywords + few-shot LLM + confidence override.
+"""Cassandre Grand Composite v3 — Bilingual + Confidence Override.
 
 Based on Quan's v2.5 blended scoring architecture (0.880-style config).
   1. French keyword patch (import side-effect) — Cassandre scores FR convos
-  2. Few-shot LLM prompt (`few_shot_guardrail_prompt`) — includes EN + FR examples
-  3. Confidence override when LLM score ≥ LLM_HIGH_CONFIDENCE
+  2. Bilingual C-SSRS prompt (fr_patch.BILINGUAL_PROMPT) — 8 EN+FR examples, full C-SSRS logic
+  3. Confidence override when LLM score ≥ LLM_HIGH_CONFIDENCE (0.85)
   4. Provider fallback: OpenAI → Cohere → Mistral
   5. Composite threshold 0.40; blend W_CASS=0.4 / W_LLM=0.6
 
@@ -172,17 +172,17 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
     llm_judge_gr = None
     if llm_provider is not None:
         try:
-            from src.prompt_templates.few_shot_guardrail_prompt import FEW_SHOT_USER_INPUT_PROMPT
+            from src.guardrails.fr_patch import BILINGUAL_PROMPT
             llm_judge_gr = LLMJudgeGuardrail(
                 config=GuardrailConfig(
-                    name="llm_judge_few_shot_base",
+                    name="llm_judge_bilingual_base",
                     description="Internal base for composite",
                     threshold=0.5,
                 ),
                 llm_provider=llm_provider,
-                user_input_prompt=FEW_SHOT_USER_INPUT_PROMPT,
+                user_input_prompt=BILINGUAL_PROMPT,
             )
-            LOGGER.info("LLM judge loaded with original few-shot prompt")
+            LOGGER.info("LLM judge loaded with bilingual C-SSRS prompt")
         except Exception as exc:
             LOGGER.error("Failed to initialize LLM Judge: %s", exc)
 
