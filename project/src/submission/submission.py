@@ -2,8 +2,8 @@
 
 Based on Quan's v2.5 blended scoring architecture (0.880-style config).
   1. French keyword patch (import side-effect) — Cassandre scores FR convos
-  2. Few-shot LLM prompt (`few_shot_guardrail_prompt`) — includes EN + FR examples
-  3. Confidence override when LLM score ≥ LLM_HIGH_CONFIDENCE
+  2. Few-shot LLM prompt (high-recall, err on side of caution)
+  3. Confidence override when LLM score ≥ LLM_HIGH_CONFIDENCE (0.85)
   4. Provider fallback: OpenAI → Cohere → Mistral
   5. Composite threshold 0.40; blend W_CASS=0.4 / W_LLM=0.6
 

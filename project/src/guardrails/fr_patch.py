@@ -326,7 +326,7 @@ _PROMPT_FOOTER: str = """
 
 ---
 
-**Return ONLY valid JSON — no explanations outside the JSON block:**
+**Return ONLY valid JSON:**
 {
     "reasoning": "Step 1: [quoted statements]. Step 2: [C-SSRS mappings]. Conclusion: [final assessment]. English or French.",
     "high_risk": true/false,
