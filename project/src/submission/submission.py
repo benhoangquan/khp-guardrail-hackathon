@@ -1,8 +1,8 @@
-"""Cassandre Grand Composite v3 — Bilingual + Confidence Override.
+"""Cassandre Grand Composite v3 — FR keywords + few-shot LLM + confidence override.
 
 Based on Quan's v2.5 blended scoring architecture (0.880-style config).
   1. French keyword patch (import side-effect) — Cassandre scores FR convos
-  2. Bilingual C-SSRS prompt (fr_patch.BILINGUAL_PROMPT) — 8 EN+FR examples, full C-SSRS logic
+  2. Few-shot LLM prompt (high-recall, err on side of caution)
   3. Confidence override when LLM score ≥ LLM_HIGH_CONFIDENCE (0.85)
   4. Provider fallback: OpenAI → Cohere → Mistral
   5. Composite threshold 0.40; blend W_CASS=0.4 / W_LLM=0.6
@@ -182,7 +182,7 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
                 llm_provider=llm_provider,
                 user_input_prompt=BILINGUAL_PROMPT,
             )
-            LOGGER.info("LLM judge loaded with bilingual C-SSRS prompt")
+            LOGGER.info("LLM judge loaded with improved bilingual high-recall prompt")
         except Exception as exc:
             LOGGER.error("Failed to initialize LLM Judge: %s", exc)
 
