@@ -669,10 +669,10 @@ def build_prompt(query: str, k: int = 3) -> str:
         k:     Number of few-shot examples to inject (default 3).
     """
     examples = _retriever.retrieve(query, k=k)
-    return _PROMPT_HEADER + "\n\n".join(ex["text"] for ex in examples) + _PROMPT_FOOTER
+    return _PROMPT_HEADER + "\n\n".join(ex["text"] for ex in examples)
 
 
 # Static prompt (all 8 examples) — stable baseline / used when query is
 # unavailable at init time (e.g. guardrail constructed before first call).
-BILINGUAL_PROMPT: str = _PROMPT_HEADER + "\n\n".join(ex["text"] for ex in _EXAMPLES) + _PROMPT_FOOTER
+BILINGUAL_PROMPT: str = _PROMPT_HEADER + "\n\n".join(ex["text"] for ex in _EXAMPLES)
 
