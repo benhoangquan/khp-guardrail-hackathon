@@ -7,7 +7,6 @@ into a single guardrail that handles multi-turn conversation context.
 
 from __future__ import annotations
 
-import hashlib
 import logging
 from typing import Any, Dict, Optional
 
@@ -82,8 +81,7 @@ class CassandreMultiTurnGuardrail(BaseGuardrail):
         convo_score = convo_result["score"]
 
         # 4. Run DDM Model (cognitive accumulation)
-        _seed = int(hashlib.md5(full_conversation.encode("utf-8", errors="replace")).hexdigest(), 16) % (2 ** 32)
-        ddm_result = ddm_score(user_turns, seed=_seed)
+        ddm_result = ddm_score(user_turns, seed=42)
         ddm_score_val = ddm_result["score"]
 
         # 4. Composite score (weighted average)

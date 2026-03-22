@@ -167,9 +167,6 @@ _RISK_TERMS = [
     r"\bgoodbye forever\b", r"\bnothing matters\b", r"\bdoesn't matter anymore\b",
     # isolation
     r"\bno one cares\b", r"\bnobody cares\b", r"\ball alone\b", r"\bcompletely alone\b",
-    # temporal urgency (Coppersmith et al. 2018)
-    r"\btonight\b", r"\bthis is my last\b", r"\bbefore morning\b", r"\bright now i\b",
-    r"\bby tomorrow\b", r"\bone last\b", r"\bafter i send this\b", r"\bafter this message\b",
 ]
 
 
@@ -179,24 +176,6 @@ _HEDGE_TERMS = [
     r"\bi guess\b", r"\bi think\b", r"\bi don't know\b", r"\bjust wondering\b",
     r"\ba little\b", r"\ba bit\b", r"\bsometimes\b", r"\bmight\b", r"\bcould be\b",
 ]
-
-# Negation scope (Ji et al. 2022)
-_NEGATION_RE: re.Pattern = re.compile(
-    r"\b(don't|do not|doesn't|does not|didn't|did not|not|never|no longer|"
-    r"wouldn't|won't|can't|cannot|n't|pas|ne pas|jamais|plus)\b",
-    re.IGNORECASE,
-)
-
-
-def _is_negated(text: str, match_start: int, window_tokens: int = 3) -> bool:
-    """Return True if the risk match at match_start is preceded by a negation."""
-    prefix = text[:match_start].split()
-    window = " ".join(prefix[-window_tokens:]) if prefix else ""
-    return bool(_NEGATION_RE.search(window))
-
-
-# Recency weighting — last turns carry more signal (Pestian 2012, Gkotsis 2017)
-_RECENCY_GAMMA: float = 1.3
 
 # Syntactic fragmentation markers (elevated in ADHD-style text)
 _FRAGMENT_PATTERN = re.compile(
@@ -232,12 +211,8 @@ def extract_turn_features(turn_text: str) -> float:
     words = text.split()
     n = max(len(words), 1)
 
-    # Risk keyword hits — negated matches suppressed
-    risk_hits = 0
-    for k in _RISK_TERMS:
-        m = re.search(k, text)
-        if m and not _is_negated(text, m.start()):
-            risk_hits += 1
+    # Risk keyword hits (weighted most heavily)
+    risk_hits = sum(1 for k in _RISK_TERMS if re.search(k, text))
     risk_score = min(risk_hits / max(n / 5, 1), 1.0)
 
     # Low hedging increases risk signal (direct language = more certain distress)
@@ -351,13 +326,10 @@ def simulate_ddm(
     trajectory = [E]
 
     crossing_turn: Optional[int] = None
-    T = len(phi_sequence)
 
     for t, phi in enumerate(phi_sequence):
-        # Recency weight: last turn = 1.0, earlier turns decay exponentially
-        recency_weight = (1.0 / _RECENCY_GAMMA) ** (T - 1 - t) if T > 1 else 1.0
         noise = profile.sigma * rng.standard_normal()
-        E = E + profile.v * phi * recency_weight + noise
+        E = E + profile.v * phi + noise
         E = max(0.0, E)  # absorbing lower barrier at 0 (evidence can't go negative)
         trajectory.append(E)
 
