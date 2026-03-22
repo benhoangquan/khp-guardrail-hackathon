@@ -12,9 +12,9 @@ sys.path.append(os.getcwd())
 from project.providers.cohere_provider import CohereProvider
 from project.providers.base import LLMMessage
 
-INPUT_FILE = "datasets/comprehensive_stress_test_v2.csv"
-CONFIG_FILE = "datasets/test_matrix_config_v2.json"
-OUTPUT_FILE = "datasets/comprehensive_stress_test_v2_output.csv"
+INPUT_FILE = "datasets/output/v3/comprehensive_stress_test_v3.csv"
+CONFIG_FILE = "datasets/output/v3/test_matrix_config_v3.json"
+OUTPUT_FILE = "datasets/output/v3/comprehensive_stress_test_v3_output.csv"
 DRIFT_LOG = "datasets/drift_test_logs_v2.json"
 BASE_URL = "https://example.invalid"
 
