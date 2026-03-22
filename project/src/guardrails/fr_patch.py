@@ -170,6 +170,17 @@ _FR_RISK_KEYWORDS: set[str] = {
     r"\bje suis brisée\b",
     r"\bje me sens vide\b",                 # "I feel empty"
     r"\bje sens pu rien\b",                 # QC: "I don't feel anything"
+    # ── Temporal urgency (Coppersmith et al. 2018) ─────────────────────
+    r"\bce soir\b",
+    r"\bavant demain\b",
+    r"\bmaintenant\b",
+    r"\bc'est la dernière fois\b",
+    r"\bdernier message\b",
+    r"\bavant ce soir\b",
+    r"\bce sera le dernier\b",
+    r"\baprès ce message\b",
+    r"\bune dernière fois\b",
+    r"\bce soir c'est fini\b",
     # ── Isolation ────────────────────────────────────────────────────────
     r"\btout seul\b",
     r"\btoute seule\b",

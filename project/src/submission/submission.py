@@ -32,6 +32,22 @@ from src.guardrails.base import (
 LOGGER = logging.getLogger(__name__)
 
 
+def _truncate_for_llm(content: str, first_n: int = 4, last_n: int = 8) -> str:
+    """Keep first + last user turns to prevent 'lost in the middle' (Liu et al. 2023)."""
+    from src.guardrails.convo_adapter import parse_turns
+    turns = parse_turns(content)
+    user_indices = [i for i, (role, _) in enumerate(turns) if role == "user"]
+    if len(user_indices) <= first_n + last_n:
+        return content
+    first_boundary = user_indices[first_n - 1]
+    last_boundary = user_indices[-last_n]
+    kept = [
+        (role, text) for i, (role, text) in enumerate(turns)
+        if i <= first_boundary or i >= last_boundary
+    ]
+    return "\n".join(f"{role}: {text}" for role, text in kept)
+
+
 class MultiModelEnsemble(BaseGuardrail):
     """
     Multi-model ensemble with boolean voting.
@@ -65,12 +81,13 @@ class MultiModelEnsemble(BaseGuardrail):
             1.0 if cass_result.status == GuardrailStatus.FAIL else 0.0
         )
 
-        # 2. Model A
+        # 2. Model A (truncate long conversations for LLM)
+        llm_content = _truncate_for_llm(content)
         a_result = None
         a_score = cass_score
         a_fail = cass_result.status == GuardrailStatus.FAIL
         if self.llm_a:
-            a_result = self.llm_a.evaluate(content, context, evaluation_type)
+            a_result = self.llm_a.evaluate(llm_content, context, evaluation_type)
             a_score = a_result.score if a_result.score is not None else (
                 1.0 if a_result.status == GuardrailStatus.FAIL else 0.0
             )
@@ -81,7 +98,7 @@ class MultiModelEnsemble(BaseGuardrail):
         b_score = cass_score
         b_fail = cass_result.status == GuardrailStatus.FAIL
         if self.llm_b:
-            b_result = self.llm_b.evaluate(content, context, evaluation_type)
+            b_result = self.llm_b.evaluate(llm_content, context, evaluation_type)
             b_score = b_result.score if b_result.score is not None else (
                 1.0 if b_result.status == GuardrailStatus.FAIL else 0.0
             )
@@ -179,7 +196,7 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
 
     try:
         from providers.openai_provider import OpenAIProvider
-        p = _try_provider("OpenAI", OpenAIProvider, "BUZZ_GPT_OSS_AUTH_TOKEN")
+        p = _try_provider("OpenAI", OpenAIProvider, "BUZZ_GPT_OSS_AUTH_TOKEN", max_tokens=400)
         if p:
             providers["openai"] = p
     except ImportError:
@@ -187,7 +204,7 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
 
     try:
         from providers.cohere_provider import CohereProvider
-        p = _try_provider("Cohere", CohereProvider, "BUZZ_COHERE_AUTH_TOKEN")
+        p = _try_provider("Cohere", CohereProvider, "BUZZ_COHERE_AUTH_TOKEN", max_tokens=400)
         if p:
             providers["cohere"] = p
     except ImportError:
@@ -200,6 +217,7 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
             model=os.getenv("MISTRAL_MODEL"),
             base_url=os.getenv("BUZZ_MISTRAL_LARGE_API"),
             api_key=os.getenv("BUZZ_MISTRAL_LARGE_AUTH_TOKEN"),
+            max_tokens=400,
         )
         if p:
             providers["mistral"] = p
