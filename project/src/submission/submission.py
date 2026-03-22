@@ -5,7 +5,7 @@ Based on Quan's v2.5 blended scoring architecture (0.880-style config).
   2. Few-shot LLM prompt (high-recall, err on side of caution)
   3. Confidence override when LLM score ≥ LLM_HIGH_CONFIDENCE (0.85)
   4. Provider fallback: OpenAI → Cohere → Mistral
-  5. Composite threshold 0.40; blend W_CASS=0.4 / W_LLM=0.6
+  5. Composite threshold 0.38; blend W_CASS=0.30 / W_LLM=0.70
 
 Previous version preserved as: submission_quan_v25.py
 """
@@ -83,9 +83,9 @@ class CassandreGrandCompositeV3(BaseGuardrail):
             override = "llm_high_confidence"
             grand_score = llm_score
         else:
-            # Standard blend (same weights as v2.5)
-            W_CASS = 0.4
-            W_LLM = 0.6
+            # LLM is more accurate — give it more weight (v4 tuning)
+            W_CASS = 0.30
+            W_LLM = 0.70
             grand_score = (cass_score * W_CASS) + (llm_score * W_LLM)
 
         status = (
@@ -188,7 +188,7 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
 
     # ── 4. Build composite (same threshold as v2.5) ──────────────────────
     input_guardrail = CassandreGrandCompositeV3(
-        cassandre_gr, llm_judge_gr, threshold=0.40
+        cassandre_gr, llm_judge_gr, threshold=0.38
     )
 
     return (input_guardrail, None)
