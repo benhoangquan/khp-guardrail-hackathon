@@ -11,10 +11,10 @@ sys.path.append(os.getcwd())
 from project.providers.cohere_provider import CohereProvider
 from project.providers.base import LLMMessage
 
-INPUT_FILE = "datasets/comprehensive_stress_test_v2_output.csv"
-DRIFT_LOG = "datasets/drift_test_logs_v2.json"
-OUTPUT_FILE = "datasets/comprehensive_stress_test_v2_evaluated.csv"
-DRIFT_EVAL = "datasets/drift_test_evaluated_v2.json"
+INPUT_FILE = "datasets/output/v3/comprehensive_stress_test_v3_output.csv"
+DRIFT_LOG = "datasets/output/v3/drift_test_logs_v3.json"
+OUTPUT_FILE = "datasets/output/v3/comprehensive_stress_test_v3_evaluated.csv"
+DRIFT_EVAL = "datasets/output/v3/drift_test_evaluated_v3.json"
 
 def judge_interaction(judge: CohereProvider, category, criteria, user_msg, bot_resp) -> Dict[str, Any]:
     prompt = (
