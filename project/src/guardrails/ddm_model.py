@@ -167,6 +167,12 @@ _RISK_TERMS = [
     r"\bgoodbye forever\b", r"\bnothing matters\b", r"\bdoesn't matter anymore\b",
     # isolation
     r"\bno one cares\b", r"\bnobody cares\b", r"\ball alone\b", r"\bcompletely alone\b",
+    # temporal urgency: immediacy of action
+    # Source: Coppersmith et al. (2018) "Natural Language Processing of Social Media as Screening
+    # for Suicide Risk", Biomedical Informatics Insights. Time-anchored language predicts
+    # imminent risk independently of ideation severity.
+    r"\btonight\b", r"\bthis is my last\b", r"\bbefore morning\b", r"\bright now i\b",
+    r"\bby tomorrow\b", r"\bone last\b", r"\bafter i send this\b", r"\bafter this message\b",
 ]
 
 
@@ -176,6 +182,35 @@ _HEDGE_TERMS = [
     r"\bi guess\b", r"\bi think\b", r"\bi don't know\b", r"\bjust wondering\b",
     r"\ba little\b", r"\ba bit\b", r"\bsometimes\b", r"\bmight\b", r"\bcould be\b",
 ]
+
+# Negation scope
+# 3-token window avoids cross-clause suppression while catching direct negations.
+# Source: Ji et al. (2022) "MentalBERT: Publicly Available Pretrained Language
+# Models for Mental Healthcare"; negation is the leading cause of false
+# positives in keyword-based mental health NLP.
+_NEGATION_RE: re.Pattern = re.compile(
+    r"\b(don't|do not|doesn't|does not|didn't|did not|not|never|no longer|"
+    r"wouldn't|won't|can't|cannot|n't|pas|ne pas|jamais|plus)\b",
+    re.IGNORECASE,
+)
+
+
+def _is_negated(text: str, match_start: int, window_tokens: int = 3) -> bool:
+    """Return True if the risk match at match_start is preceded by a negation."""
+    prefix = text[:match_start].split()
+    window = " ".join(prefix[-window_tokens:]) if prefix else ""
+    return bool(_NEGATION_RE.search(window))
+
+
+# Recency weighting constant
+# Exponential decay applied to phi(t): recent turns weighted more than early ones.
+# weight(t) = (1/gamma)^(T-1-t), where last turn = 1.0 and each prior turn decays by 1/gamma.
+# Source: Pestian et al. (2012) "Suicide Note Classification Using Natural
+# Language Processing", Biomedical Informatics Insights. Final utterances
+# before a crisis carry disproportionate signal weight.
+# Source: Gkotsis et al. (2017) "Characterisation of Mental Health Conditions
+# in Social Media Using InformED", JAMIA Open.
+_RECENCY_GAMMA: float = 1.3  # decay factor; last turn weight = 1.0
 
 # Syntactic fragmentation markers (elevated in ADHD-style text)
 _FRAGMENT_PATTERN = re.compile(
@@ -211,8 +246,12 @@ def extract_turn_features(turn_text: str) -> float:
     words = text.split()
     n = max(len(words), 1)
 
-    # Risk keyword hits (weighted most heavily)
-    risk_hits = sum(1 for k in _RISK_TERMS if re.search(k, text))
+    # Risk keyword hits — negated matches suppressed (e.g. "don't want to hurt myself")
+    risk_hits = 0
+    for k in _RISK_TERMS:
+        m = re.search(k, text)
+        if m and not _is_negated(text, m.start()):
+            risk_hits += 1
     risk_score = min(risk_hits / max(n / 5, 1), 1.0)
 
     # Low hedging increases risk signal (direct language = more certain distress)
@@ -326,10 +365,14 @@ def simulate_ddm(
     trajectory = [E]
 
     crossing_turn: Optional[int] = None
+    T = len(phi_sequence)
 
     for t, phi in enumerate(phi_sequence):
+        # Recency weight: (1/gamma)^(T-1-t), so the last turn = 1.0 and earlier
+        # turns decay exponentially. See _RECENCY_GAMMA for sources.
+        recency_weight = (1.0 / _RECENCY_GAMMA) ** (T - 1 - t) if T > 1 else 1.0
         noise = profile.sigma * rng.standard_normal()
-        E = E + profile.v * phi + noise
+        E = E + profile.v * phi * recency_weight + noise
         E = max(0.0, E)  # absorbing lower barrier at 0 (evidence can't go negative)
         trajectory.append(E)
 

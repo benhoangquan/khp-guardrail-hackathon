@@ -258,6 +258,7 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
                     name="model_b_bilingual",
                     description=f"Secondary ({provider_b_name}) + bilingual prompt",
                     threshold=0.5,
+                    max_retries=2,
                 ),
                 llm_provider=provider_b,
                 user_input_prompt=BILINGUAL_PROMPT,
