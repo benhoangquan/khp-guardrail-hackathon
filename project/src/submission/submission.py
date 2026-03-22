@@ -5,7 +5,7 @@ LLM judge score → logistic meta-learner, risk-averse threshold).
 
 Requires under `project/models/`:
   - `mmbert_guardrail_demo/` (fine-tuned classifier)
-  - `ensemble_cascade_meta.json` (optional; fallback blend if missing)
+  - `ensemble_cascade_meta.json` (optional; overrides embedded coefs in `submission_ensemble_cascade`)
 """
 
 from __future__ import annotations

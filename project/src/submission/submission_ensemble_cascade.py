@@ -7,9 +7,10 @@ Implements a three-signal feature vector per message:
 2. **mmBERT** — P(high_risk) from the finetuned classifier guardrail (same as `load_classifier_guardrail`).
 3. **LLM judge** — uses the judge's calibrated `score` in [0, 1]; if missing, falls back to 1.0/0.0 from FAIL/PASS.
 
-**Meta-learner:** logistic layer ``p = sigmoid(w·x + b)`` with weights loaded from
-``models/ensemble_cascade_meta.json`` (fit offline via ``project/scripts/train_ensemble_cascade_meta.py``).
-If that file is absent, a fixed convex blend of the three features is used so the submission still runs.
+**Meta-learner:** logistic layer ``p = sigmoid(w·x + b)``. Weights are **bundled in code**
+(``_EMBEDDED_ENSEMBLE_CASCADE_META``). If ``models/ensemble_cascade_meta.json`` exists, it overrides the embedded coefficients
+(see ``train_ensemble_cascade_meta.py`` to regenerate). Unreadable file → embedded defaults;
+valid file without three coefs → convex blend fallback.
 
 **Threshold:** default 0.3 (risk-averse): FAIL when meta probability ≥ threshold.
 """
@@ -48,6 +49,19 @@ LOGGER = logging.getLogger(__name__)
 
 META_JSON_NAME = "ensemble_cascade_meta.json"
 MMBERT_REL_PATH = Path("models") / "mmbert_guardrail_demo"
+
+# Bundled meta-learner (same schema as models/ensemble_cascade_meta.json). Used when the JSON
+# file is missing so evaluators do not depend on shipping this small artifact separately.
+_EMBEDDED_ENSEMBLE_CASCADE_META: Dict[str, Any] = {
+    "coef": [
+        0.4756254103995721,
+        0.8904769747972616,
+        1.9388169963589441,
+    ],
+    "intercept": -1.7063935165219213,
+    "threshold": 0.3,
+    "feature_order": ["word_filter", "mmbert_prob", "llm_score"],
+}
 
 # Fallback blend when no trained meta file exists (weights sum to 1; emphasize learned signals).
 _FALLBACK_WEIGHTS = (0.15, 0.45, 0.40)  # word_filter, mmbert, llm
@@ -226,27 +240,30 @@ def get_guardrails() -> Tuple[Optional[Any], Optional[Any]]:
         LOGGER.error("Ensemble cascade: LLM judge unavailable, using llm_score=0 | error=%s", e)
 
     meta_path = _PROJECT_ROOT / "models" / META_JSON_NAME
-    meta = _load_meta_learner(meta_path)
+    file_meta = _load_meta_learner(meta_path)
+    meta = file_meta if file_meta else dict(_EMBEDDED_ENSEMBLE_CASCADE_META)
+    meta_source = "models/" + META_JSON_NAME if file_meta else "embedded_default"
+
     coef: Optional[List[float]] = None
     intercept = 0.0
     threshold = 0.3
-    if meta:
-        raw_coef = meta.get("coef") or meta.get("coefficients")
-        if isinstance(raw_coef, list) and len(raw_coef) == 3:
-            coef = [float(c) for c in raw_coef]
-        intercept = float(meta.get("intercept", 0.0))
-        threshold = float(meta.get("threshold", threshold))
+    raw_coef = meta.get("coef") or meta.get("coefficients")
+    if isinstance(raw_coef, list) and len(raw_coef) == 3:
+        coef = [float(c) for c in raw_coef]
+    intercept = float(meta.get("intercept", 0.0))
+    threshold = float(meta.get("threshold", threshold))
+    if coef is not None:
         LOGGER.info(
-            "Loaded meta learner | path=%s trained=%s threshold=%.4f",
-            meta_path,
-            coef is not None,
+            "Meta learner | source=%s trained=%s threshold=%.4f",
+            meta_source,
+            True,
             threshold,
         )
     else:
         LOGGER.warning(
-            "No meta learner at %s — using fallback convex blend %s",
-            meta_path,
+            "Meta learner JSON invalid or missing coef — using fallback convex blend %s | source=%s",
             _FALLBACK_WEIGHTS,
+            meta_source,
         )
 
     input_guardrail = EnsembleCascadeGuardrail(
